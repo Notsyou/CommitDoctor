@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Commit Doctor</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M1 13h6l2-7 4 13 2-6h8' fill='none' stroke='%23d22b47' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#summary">Skip to summary</a>
+
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M1 13h6l2-7 4 13 2-6h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Commit Doctor</span>
+    </div>
+    <p class="status" id="status" role="status"><span class="dot" aria-hidden="true"></span><span id="status-text">Connecting…</span></p>
+  </header>
+
+  <main>
+    <section class="note" id="summary" aria-labelledby="day-title">
+      <div class="note-head">
+        <div>
+          <p class="repo" id="repo">Repository</p>
+          <h1 id="day-title">Today</h1>
+        </div>
+        <div class="daynav" role="group" aria-label="Choose a day">
+          <button type="button" id="prev" aria-label="Previous day">‹</button>
+          <input type="date" id="date-input" aria-label="Day">
+          <button type="button" id="next" aria-label="Next day">›</button>
+          <button type="button" id="today" class="text-btn">Today</button>
+        </div>
+      </div>
+      <p class="headline" id="headline" aria-live="polite"></p>
+      <p class="provenance"><span id="provenance"></span> <button type="button" id="save-btn" class="text-btn" hidden>Save summary now</button></p>
+    </section>
+
+    <section class="trace" aria-labelledby="trace-title">
+      <h2 id="trace-title" class="sr-only">Commits per day, last 14 days</h2>
+      <div id="trace"></div>
+      <p class="trace-key">Spike height is the number of commits that day. Select a day to read its summary. A dot under the date means a summary was saved.</p>
+    </section>
+
+    <div class="cols">
+      <div class="col-main">
+        <section aria-labelledby="who-title">
+          <h2 id="who-title">Who committed</h2>
+          <div id="who"></div>
+        </section>
+        <section aria-labelledby="commits-title">
+          <h2 id="commits-title">Commits</h2>
+          <ol class="commit-list" id="commits"></ol>
+        </section>
+      </div>
+
+      <aside class="col-side">
+        <section aria-labelledby="vitals-title">
+          <h2 id="vitals-title">Vitals</h2>
+          <dl class="vitals" id="vitals"></dl>
+        </section>
+        <section aria-labelledby="hours-title">
+          <h2 id="hours-title">Hour by hour</h2>
+          <div id="hours"></div>
+        </section>
+      </aside>
+    </div>
+
+    <details class="log" id="log">
+      <summary>System log: webhook deliveries and summary runs</summary>
+      <div class="log-body" id="log-body"><p class="muted">Open to load.</p></div>
+    </details>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

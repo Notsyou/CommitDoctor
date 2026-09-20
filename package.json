@@ -1,0 +1,21 @@
+{
+  "name": "commit-doctor",
+  "version": "0.1.0",
+  "description": "Commit Doctor (ComDoc): a GitHub webhook that tracks and summarizes commits for team awareness.",
+  "main": "src/server.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
+    "seed": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js",
+    "simulate": "node scripts/simulate-push.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0"
+  }
+}
