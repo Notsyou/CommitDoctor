@@ -28,6 +28,11 @@
         <div>
           <p class="repo" id="repo">Repository</p>
           <h1 id="day-title">Today</h1>
+          <div class="repo-track">
+            <input type="text" id="repo-input" placeholder="owner/name" aria-label="GitHub repository to track (owner/name)">
+            <button type="button" id="track-btn">Track</button>
+          </div>
+          <p class="track-hint" id="track-hint" hidden></p>
         </div>
         <div class="daynav" role="group" aria-label="Choose a day">
           <button type="button" id="prev" aria-label="Previous day">‹</button>

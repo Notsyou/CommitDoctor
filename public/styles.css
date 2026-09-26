@@ -91,6 +91,22 @@ h1 {
 .text-btn:hover { color: var(--signal); }
 .daynav .text-btn { border: 1px solid var(--rule); margin: 0; }
 
+/* --- repo tracking (text field + Track button) --------------------------- */
+.repo-track { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; }
+.repo-track input {
+  font: inherit; font-size: .9rem; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 6px; height: 2.1rem; padding: 0 .6rem;
+  width: 14rem; max-width: 100%;
+}
+.repo-track button {
+  font: inherit; font-size: .9rem; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 6px; height: 2.1rem; padding: 0 .9rem; cursor: pointer;
+}
+.repo-track button:hover { border-color: var(--ink); }
+.repo-track button:disabled { opacity: .5; cursor: not-allowed; }
+.track-hint { margin: .4rem 0 0; font-size: .85rem; color: var(--muted); max-width: 32rem; }
+.track-hint code { word-break: break-all; }
+
 /* --- the pulse trace (hero) ---------------------------------------------- */
 .trace {
   border: 1px solid var(--rule); border-radius: 4px; background: var(--surface);

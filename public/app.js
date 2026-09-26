@@ -13,15 +13,17 @@
   async function api(path, opts = {}) {
     const headers = { Accept: 'application/json' };
     if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
-    const res = await fetch(path, { method: opts.method || 'GET', headers });
-    const body = await res.json().catch(() => ({}));
+    let body;
+    if (opts.body !== undefined) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(opts.body); }
+    const res = await fetch(path, { method: opts.method || 'GET', headers, body });
+    const resBody = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = new Error(body.error || body.reason || res.statusText);
+      const err = new Error(resBody.error || resBody.reason || res.statusText);
       err.status = res.status;
-      err.body = body;
+      err.body = resBody;
       throw err;
     }
-    return body;
+    return resBody;
   }
 
   const utcNoon = (d) => new Date(`${d}T12:00:00Z`);
@@ -72,6 +74,17 @@
     const nothingYet = o.totals.commits === 0;
     $('#repo').textContent = `${o.repo || 'No repository yet'} (times shown in ${o.timezone})`;
     $('#day-title').textContent = dayLong(date);
+
+    const trackInput = $('#repo-input');
+    if (document.activeElement !== trackInput) trackInput.value = (o.settings && o.settings.tracked_repo) || '';
+    const hint = $('#track-hint');
+    if (o.settings && o.settings.tracked_repo) {
+      hint.hidden = false;
+      hint.innerHTML = `Tracking <code>${esc(o.settings.tracked_repo)}</code>. On GitHub: Settings &rsaquo; Webhooks &rsaquo; Add webhook, payload URL
+        <code>${esc(window.location.origin)}/webhook/github</code>, content type <code>application/json</code>, secret matching this server's <code>GITHUB_WEBHOOK_SECRET</code>.`;
+    } else {
+      hint.hidden = true;
+    }
 
     $('#headline').innerHTML = nothingYet
       ? 'No commits recorded yet. Point a GitHub webhook at <code>/webhook/github</code>, or run <code>npm run seed</code> to load demo data.'
@@ -286,6 +299,27 @@
     return undefined;
   }
 
+  async function trackRepo() {
+    const btn = $('#track-btn');
+    const input = $('#repo-input');
+    const value = input.value.trim();
+    if (!value) return;
+    btn.disabled = true;
+    try {
+      await api('/api/settings', { method: 'POST', token: state.token, body: { tracked_repo: value } });
+      await refresh({ force: true });
+    } catch (err) {
+      if (err.status === 401) {
+        const t = window.prompt('This server needs an admin token to change settings. Enter it:');
+        if (t) { state.token = t; btn.disabled = false; return trackRepo(); }
+      } else {
+        window.alert(err.body && err.body.error ? err.body.error : err.message);
+      }
+    }
+    btn.disabled = false;
+    return undefined;
+  }
+
   // --- system log ----------------------------------------------------------------
   async function loadLog() {
     const a = await api('/api/activity?limit=25');
@@ -311,6 +345,8 @@
     $('#today').addEventListener('click', () => select(state.overview.today));
     $('#date-input').addEventListener('change', (e) => select(e.target.value));
     $('#save-btn').addEventListener('click', saveNow);
+    $('#track-btn').addEventListener('click', trackRepo);
+    $('#repo-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); trackRepo(); } });
 
     const trace = $('#trace');
     trace.addEventListener('click', (e) => { const r = e.target.closest('.hit'); if (r) select(r.dataset.date); });
