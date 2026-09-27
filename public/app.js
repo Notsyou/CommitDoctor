@@ -7,7 +7,7 @@
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : null);
 
-  const state = { overview: null, trend: [], summary: null, commits: [], date: null, token: null, drawn: false, key: '', pollRepos: [] };
+  const state = { overview: null, trend: [], summary: null, commits: [], date: null, token: null, drawn: false, key: '', pollRepos: [], prediction: null };
 
   // --- helpers ---------------------------------------------------------------
   async function api(path, opts = {}) {
@@ -85,6 +85,11 @@
     } else {
       hint.hidden = true;
     }
+
+    const deadlineInput = $('#deadline-input');
+    const deadline = o.settings && o.settings.deadline_date;
+    if (document.activeElement !== deadlineInput) deadlineInput.value = deadline || '';
+    $('#deadline-clear-btn').hidden = !deadline;
 
     $('#headline').innerHTML = nothingYet
       ? 'No commits recorded yet. Point a GitHub webhook at <code>/webhook/github</code>, add a polled repo below, or run <code>npm run seed</code> to load demo data.'
@@ -172,6 +177,95 @@
       if (err.status === 401) {
         const t = window.prompt('This server needs an admin token to remove a polled repo. Enter it:');
         if (t) { state.token = t; return removePolledRepo(id); }
+      } else {
+        window.alert(err.body && err.body.error ? err.body.error : err.message);
+      }
+    }
+    return undefined;
+  }
+
+  // --- deadline prediction --------------------------------------------------------
+  const PRED_LABEL = {
+    'on-pace': 'On pace',
+    'at-risk': 'At risk',
+    behind: 'Behind pace',
+    'deadline-passed': 'Deadline passed',
+    'insufficient-data': 'Not enough history yet',
+    'no-deadline': null,
+  };
+  const PRED_COLOR = {
+    'on-pace': '#3ecf6e',
+    'at-risk': '#e0a92c',
+    behind: '#e05a4e',
+    'deadline-passed': '#8a8f98',
+    'insufficient-data': '#8a8f98',
+  };
+
+  function renderPrediction() {
+    const p = state.prediction;
+    const el = $('#prediction');
+    if (!p || p.status === 'no-deadline') { el.hidden = true; return; }
+    el.hidden = false;
+    el.dataset.status = p.status;
+    const color = PRED_COLOR[p.status] || '#8a8f98';
+    const label = PRED_LABEL[p.status] || p.status;
+    const dot = `<span aria-hidden="true" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px"></span>`;
+    const strong = `<strong style="color:${color}">${esc(label)}</strong>`;
+
+    if (p.status === 'insufficient-data') {
+      el.innerHTML = `${dot}${strong} — deadline in ${p.days_remaining} day(s).`;
+      return;
+    }
+    if (p.status === 'deadline-passed') {
+      el.innerHTML = `${dot}${strong} (${Math.abs(p.days_remaining)} day(s) ago).`;
+      return;
+    }
+    const paceNote = p.recent_commit_rate >= p.overall_commit_rate
+      ? `averaging ${p.recent_commit_rate} Commits /day over the last ${p.window_days} day(s), matching or beating your overall average of ${p.overall_commit_rate}/day`
+      : `averaging ${p.recent_commit_rate} Commits /day over the last ${p.window_days} day(s), down from your overall average of ${p.overall_commit_rate}/day`;
+    el.innerHTML = `${dot}${strong} — ${paceNote}. ${p.days_remaining} day(s) left until the deadline.`;
+  }
+
+  async function loadPrediction() {
+    try {
+      state.prediction = await api('/api/prediction');
+      renderPrediction();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function setDeadline() {
+    const btn = $('#deadline-btn');
+    const input = $('#deadline-input');
+    const value = input.value;
+    if (!value) return;
+    btn.disabled = true;
+    try {
+      await api('/api/settings', { method: 'POST', token: state.token, body: { deadline_date: value } });
+      await refresh({ force: true });
+      await loadPrediction();
+    } catch (err) {
+      if (err.status === 401) {
+        const t = window.prompt('This server needs an admin token to change settings. Enter it:');
+        if (t) { state.token = t; btn.disabled = false; return setDeadline(); }
+      } else {
+        window.alert(err.body && err.body.error ? err.body.error : err.message);
+      }
+    }
+    btn.disabled = false;
+    return undefined;
+  }
+
+  async function clearDeadline() {
+    try {
+      await api('/api/settings', { method: 'POST', token: state.token, body: { deadline_date: null } });
+      await refresh({ force: true });
+      await loadPrediction();
+    } catch (err) {
+      if (err.status === 401) {
+        const t = window.prompt('This server needs an admin token to change settings. Enter it:');
+        if (t) { state.token = t; return clearDeadline(); }
       } else {
         window.alert(err.body && err.body.error ? err.body.error : err.message);
       }
@@ -418,6 +512,8 @@
     $('#save-btn').addEventListener('click', saveNow);
     $('#track-btn').addEventListener('click', trackRepo);
     $('#repo-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); trackRepo(); } });
+    $('#deadline-btn').addEventListener('click', setDeadline);
+    $('#deadline-clear-btn').addEventListener('click', clearDeadline);
 
     $('#poll-add-btn').addEventListener('click', addPolledRepo);
     $('#poll-token-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addPolledRepo(); } });
@@ -441,6 +537,7 @@
       if (document.hidden) return;
       refresh().catch(showError);
       loadPollList();
+      loadPrediction();
       if ($('#log').open) loadLog().catch(() => {});
     }, 30000);
   }
@@ -448,4 +545,5 @@
   bind();
   refresh({ force: true }).catch(showError);
   loadPollList();
+  loadPrediction();
 })();

@@ -111,56 +111,66 @@ async function fetchNewCommits(repo, token, since) {
   return commits;
 }
 
-function startPoller({ db, config, log = console, intervalMs = 3 * 60_000 }) {
+/**
+ * Poll a single tracked_repos row right now: fetch new commits since its cursor,
+ * fetch per-commit churn detail for each, store them, and update the row's
+ * last_since/last_polled_at/last_error/default_branch. Used both by the interval
+ * loop below and by api.js to run one immediate poll right after a repo is added,
+ * so the dashboard doesn't sit on "not checked yet" until the next timer tick.
+ */
+async function pollOneRepo({ db, config, row, log = console }) {
   const store = createStore(db, config);
-  const listActive = db.prepare('SELECT * FROM tracked_repos WHERE active = 1');
   const touch = db.prepare(
     `UPDATE tracked_repos SET last_since = ?, last_polled_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
        last_error = ?, default_branch = COALESCE(?, default_branch) WHERE id = ?`
   );
 
-  async function pollOne(row) {
-    let token;
-    try {
-      token = decryptToken(row.token_enc, config.tokenEncryptionKey);
-    } catch (err) {
-      touch.run(row.last_since, `Cannot decrypt stored token: ${err.message}`, null, row.id);
-      return;
-    }
-    try {
-      let branch = row.default_branch;
-      if (!branch) ({ defaultBranch: branch } = await testRepoAccess(row.repo, token));
-      const nowIso = new Date().toISOString();
-      const raw = await fetchNewCommits(row.repo, token, row.last_since);
-      const fresh = raw.filter((c) => c && c.sha);
-      // One detail call per new commit for churn stats. `since` already limits
-      // the list to commits newer than the last poll, so this is bounded by
-      // how much actually landed since then, not the whole repo history.
-      const mapped = [];
-      for (const c of fresh) {
-        let detail;
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          detail = await fetchCommitDetail(row.repo, c.sha, token);
-        } catch (detailErr) {
-          log.info(`[poller] ${row.repo}: could not fetch churn detail for ${c.sha.slice(0, 7)}: ${detailErr.message}`);
-        }
-        mapped.push(parseApiCommit(c, row.repo, branch, detail));
-      }
-      const added = store.addMany(mapped);
-      touch.run(nowIso, null, branch, row.id);
-      if (added) log.info(`[poller] ${row.repo}: stored ${added} new commit(s)`);
-    } catch (err) {
-      touch.run(row.last_since, err.message, null, row.id);
-      log.info(`[poller] ${row.repo}: ${err.message}`);
-    }
+  let token;
+  try {
+    token = decryptToken(row.token_enc, config.tokenEncryptionKey);
+  } catch (err) {
+    touch.run(row.last_since, `Cannot decrypt stored token: ${err.message}`, null, row.id);
+    return { ok: false, error: err.message };
   }
+  try {
+    let branch = row.default_branch;
+    if (!branch) ({ defaultBranch: branch } = await testRepoAccess(row.repo, token));
+    const nowIso = new Date().toISOString();
+    const raw = await fetchNewCommits(row.repo, token, row.last_since);
+    const fresh = raw.filter((c) => c && c.sha);
+    // One detail call per new commit for churn stats. `since` already limits
+    // the list to commits newer than the last poll, so this is bounded by
+    // how much actually landed since then, not the whole repo history.
+    const mapped = [];
+    for (const c of fresh) {
+      let detail;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        detail = await fetchCommitDetail(row.repo, c.sha, token);
+      } catch (detailErr) {
+        log.info(`[poller] ${row.repo}: could not fetch churn detail for ${c.sha.slice(0, 7)}: ${detailErr.message}`);
+      }
+      mapped.push(parseApiCommit(c, row.repo, branch, detail));
+    }
+    const added = store.addMany(mapped);
+    touch.run(nowIso, null, branch, row.id);
+    if (added) log.info(`[poller] ${row.repo}: stored ${added} new commit(s)`);
+    return { ok: true, added };
+  } catch (err) {
+    touch.run(row.last_since, err.message, null, row.id);
+    log.info(`[poller] ${row.repo}: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+function startPoller({ db, config, log = console, intervalMs = 3 * 60_000 }) {
+  const listActive = db.prepare('SELECT * FROM tracked_repos WHERE active = 1');
 
   async function pollAll() {
     const rows = listActive.all();
     for (const row of rows) {
       // eslint-disable-next-line no-await-in-loop
-      await pollOne(row);
+      await pollOneRepo({ db, config, row, log });
     }
   }
 
@@ -170,4 +180,4 @@ function startPoller({ db, config, log = console, intervalMs = 3 * 60_000 }) {
   return () => clearInterval(timer);
 }
 
-module.exports = { startPoller, testRepoAccess, parseApiCommit, fetchCommitDetail, nextUrl };
+module.exports = { startPoller, pollOneRepo, testRepoAccess, parseApiCommit, fetchCommitDetail, nextUrl };

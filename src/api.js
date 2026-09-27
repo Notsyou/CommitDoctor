@@ -5,7 +5,7 @@ const { localDate, localTime, addDays, daysBetween, isDateStr } = require('./tim
 const { getSummary, generateSummary, getTrend } = require('./summary');
 const { predictDeadline } = require('./predict');
 const { encryptToken } = require('./crypto');
-const { testRepoAccess } = require('./poller');
+const { testRepoAccess, pollOneRepo } = require('./poller');
 
 const clamp = (v, lo, hi, dflt) => {
   const n = parseInt(v, 10);
@@ -229,6 +229,11 @@ function createApiRouter({ db, config }) {
       const info = db
         .prepare('INSERT INTO tracked_repos (repo, token_enc, default_branch) VALUES (?, ?, ?)')
         .run(repo, tokenEnc, access.defaultBranch);
+      // Poll immediately rather than waiting for the next timer tick, so the
+      // dashboard shows real status right away instead of "not checked yet".
+      // The regular interval in poller.js still covers every row afterward.
+      const freshRow = db.prepare('SELECT * FROM tracked_repos WHERE id = ?').get(info.lastInsertRowid);
+      await pollOneRepo({ db, config, row: freshRow });
       const row = db.prepare('SELECT * FROM tracked_repos WHERE id = ?').get(info.lastInsertRowid);
       return res.status(201).json(publicRepoRow(row));
     } catch (err) {

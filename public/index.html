@@ -33,6 +33,13 @@
             <button type="button" id="track-btn">Track via webhook</button>
           </div>
           <p class="track-hint" id="track-hint" hidden></p>
+          <div class="repo-track">
+            <label for="deadline-input" class="sr-only">Project deadline</label>
+            <input type="date" id="deadline-input" aria-label="Project deadline">
+            <button type="button" id="deadline-btn">Set deadline</button>
+            <button type="button" id="deadline-clear-btn" class="text-btn" hidden>Clear</button>
+          </div>
+          <p class="prediction" id="prediction" hidden></p>
         </div>
         <div class="daynav" role="group" aria-label="Choose a day">
           <button type="button" id="prev" aria-label="Previous day">‹</button>
