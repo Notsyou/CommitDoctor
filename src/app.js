@@ -11,7 +11,7 @@ function createApp({ db, config }) {
   // GitHub signs the exact bytes it sends, so keep them for signature checking.
   const keepRawBody = (req, _res, buf) => { req.rawBody = buf; };
   app.use('/webhook/github', express.json({ limit: '10mb', verify: keepRawBody }), createWebhookRouter({ db, config }));
-  app.use('/api', createApiRouter({ db, config }));
+  app.use('/api', express.json({ limit: '1mb' }), createApiRouter({ db, config }));
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   // eslint-disable-next-line no-unused-vars

@@ -7,7 +7,7 @@
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : null);
 
-  const state = { overview: null, trend: [], summary: null, commits: [], date: null, token: null, drawn: false, key: '' };
+  const state = { overview: null, trend: [], summary: null, commits: [], date: null, token: null, drawn: false, key: '', pollRepos: [] };
 
   // --- helpers ---------------------------------------------------------------
   async function api(path, opts = {}) {
@@ -16,7 +16,7 @@
     let body;
     if (opts.body !== undefined) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(opts.body); }
     const res = await fetch(path, { method: opts.method || 'GET', headers, body });
-    const resBody = await res.json().catch(() => ({}));
+    const resBody = res.status === 204 ? {} : await res.json().catch(() => ({}));
     if (!res.ok) {
       const err = new Error(resBody.error || resBody.reason || res.statusText);
       err.status = res.status;
@@ -87,7 +87,7 @@
     }
 
     $('#headline').innerHTML = nothingYet
-      ? 'No commits recorded yet. Point a GitHub webhook at <code>/webhook/github</code>, or run <code>npm run seed</code> to load demo data.'
+      ? 'No commits recorded yet. Point a GitHub webhook at <code>/webhook/github</code>, add a polled repo below, or run <code>npm run seed</code> to load demo data.'
       : esc(s.headline);
 
     let text = '';
@@ -106,6 +106,77 @@
     $('#date-input').max = o.today;
     $('#next').disabled = date >= o.today;
     $('#today').disabled = date === o.today;
+  }
+
+  // --- polled repos --------------------------------------------------------------
+  function renderPollList() {
+    const list = state.pollRepos;
+    const host = $('#poll-list');
+    if (!list.length) { host.innerHTML = '<li class="empty">No polled repos yet.</li>'; return; }
+    host.innerHTML = list.map((r) => {
+      let status;
+      if (r.last_error) status = `<span class="pill-bad" title="${esc(r.last_error)}">error</span>`;
+      else if (r.last_polled_at) status = `<span class="pill-ok">last checked ${esc(ago(r.last_polled_at))}</span>`;
+      else status = '<span>not checked yet</span>';
+      return `<li data-id="${r.id}">
+        <span class="poll-repo-name">${esc(r.repo)}</span>
+        ${status}
+        <button type="button" class="text-btn poll-remove" data-id="${r.id}" aria-label="Stop polling ${esc(r.repo)}">Remove</button>
+      </li>`;
+    }).join('');
+  }
+
+  async function loadPollList() {
+    try {
+      state.pollRepos = await api('/api/tracked-repos');
+      renderPollList();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function addPolledRepo() {
+    const btn = $('#poll-add-btn');
+    const repoInput = $('#poll-repo-input');
+    const tokenInput = $('#poll-token-input');
+    const repo = repoInput.value.trim();
+    const token = tokenInput.value.trim();
+    const hint = $('#poll-hint');
+    hint.hidden = true;
+    if (!repo || !token) return;
+    btn.disabled = true;
+    try {
+      await api('/api/tracked-repos', { method: 'POST', token: state.token, body: { repo, token } });
+      tokenInput.value = '';
+      repoInput.value = '';
+      await loadPollList();
+      await refresh({ force: true });
+    } catch (err) {
+      if (err.status === 401) {
+        const t = window.prompt('This server needs an admin token to add a polled repo. Enter it:');
+        if (t) { state.token = t; btn.disabled = false; return addPolledRepo(); }
+      } else {
+        hint.hidden = false;
+        hint.textContent = err.body && err.body.error ? err.body.error : err.message;
+      }
+    }
+    btn.disabled = false;
+    return undefined;
+  }
+
+  async function removePolledRepo(id) {
+    try {
+      await api(`/api/tracked-repos/${id}`, { method: 'DELETE', token: state.token });
+      await loadPollList();
+    } catch (err) {
+      if (err.status === 401) {
+        const t = window.prompt('This server needs an admin token to remove a polled repo. Enter it:');
+        if (t) { state.token = t; return removePolledRepo(id); }
+      } else {
+        window.alert(err.body && err.body.error ? err.body.error : err.message);
+      }
+    }
+    return undefined;
   }
 
   // --- the pulse trace ---------------------------------------------------------
@@ -348,6 +419,13 @@
     $('#track-btn').addEventListener('click', trackRepo);
     $('#repo-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); trackRepo(); } });
 
+    $('#poll-add-btn').addEventListener('click', addPolledRepo);
+    $('#poll-token-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addPolledRepo(); } });
+    $('#poll-list').addEventListener('click', (e) => {
+      const btn = e.target.closest('.poll-remove');
+      if (btn) removePolledRepo(btn.dataset.id);
+    });
+
     const trace = $('#trace');
     trace.addEventListener('click', (e) => { const r = e.target.closest('.hit'); if (r) select(r.dataset.date); });
     trace.addEventListener('keydown', (e) => {
@@ -362,10 +440,12 @@
     setInterval(() => {
       if (document.hidden) return;
       refresh().catch(showError);
+      loadPollList();
       if ($('#log').open) loadLog().catch(() => {});
     }, 30000);
   }
 
   bind();
   refresh({ force: true }).catch(showError);
+  loadPollList();
 })();

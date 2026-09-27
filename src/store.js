@@ -13,18 +13,28 @@ function createStore(db, config) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO commits
       (sha, repo, branch, author_name, author_username, author_email, contributor,
-       message, url, is_merge, committed_at, committed_date, committed_hour, delivery_id)
+       message, url, is_merge, committed_at, committed_date, committed_hour, delivery_id,
+       files_added, files_removed, files_modified, lines_added, lines_deleted)
     VALUES
       (@sha, @repo, @branch, @author_name, @author_username, @author_email, @contributor,
-       @message, @url, @is_merge, @committed_at, @committed_date, @committed_hour, @delivery_id)
+       @message, @url, @is_merge, @committed_at, @committed_date, @committed_hour, @delivery_id,
+       @files_added, @files_removed, @files_modified, @lines_added, @lines_deleted)
   `);
 
-  /** Returns 1 if the commit was new, 0 if this SHA was already stored. */
+  /**
+   * Returns 1 if the commit was new, 0 if this SHA was already stored.
+   * filesAdded/filesRemoved/filesModified: file counts, available from both the
+   * push payload and the poller's per-commit detail call.
+   * linesAdded/linesDeleted: line-level churn, only known when the caller has
+   * fetched per-commit stats (currently: the poller, for polled repos). Leave
+   * undefined when not known — stored as NULL, not 0.
+   */
   function addCommit(c) {
     const when = new Date(c.timestamp);
     if (Number.isNaN(when.getTime())) return 0;
     const contributor = c.authorUsername || c.authorName || c.authorEmail || 'unknown';
     const message = String(c.message || '').trim();
+    const numOrNull = (v) => (Number.isFinite(v) ? v : null);
     return insert.run({
       sha: c.sha,
       repo: c.repo,
@@ -40,6 +50,11 @@ function createStore(db, config) {
       committed_date: localDate(when, config.timezone),
       committed_hour: localHour(when, config.timezone),
       delivery_id: c.deliveryId || null,
+      files_added: numOrNull(c.filesAdded),
+      files_removed: numOrNull(c.filesRemoved),
+      files_modified: numOrNull(c.filesModified),
+      lines_added: numOrNull(c.linesAdded),
+      lines_deleted: numOrNull(c.linesDeleted),
     }).changes;
   }
 

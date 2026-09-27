@@ -29,8 +29,8 @@
           <p class="repo" id="repo">Repository</p>
           <h1 id="day-title">Today</h1>
           <div class="repo-track">
-            <input type="text" id="repo-input" placeholder="owner/name" aria-label="GitHub repository to track (owner/name)">
-            <button type="button" id="track-btn">Track</button>
+            <input type="text" id="repo-input" placeholder="owner/name" aria-label="GitHub repository to track via webhook (owner/name)">
+            <button type="button" id="track-btn">Track via webhook</button>
           </div>
           <p class="track-hint" id="track-hint" hidden></p>
         </div>
@@ -43,6 +43,18 @@
       </div>
       <p class="headline" id="headline" aria-live="polite"></p>
       <p class="provenance"><span id="provenance"></span> <button type="button" id="save-btn" class="text-btn" hidden>Save summary now</button></p>
+    </section>
+
+    <section class="poll-repos" aria-labelledby="poll-title">
+      <h2 id="poll-title">Polled repos (public or private, via token)</h2>
+      <p class="muted">No public webhook needed. Commit Doctor checks these repos on a timer using a personal access token stored per repo.</p>
+      <div class="poll-add">
+        <input type="text" id="poll-repo-input" placeholder="owner/name" aria-label="Repository to poll (owner/name)">
+        <input type="password" id="poll-token-input" placeholder="Personal access token" aria-label="Personal access token" autocomplete="off">
+        <button type="button" id="poll-add-btn">Add</button>
+      </div>
+      <p class="track-hint" id="poll-hint" hidden></p>
+      <ul class="poll-list" id="poll-list"></ul>
     </section>
 
     <section class="trace" aria-labelledby="trace-title">

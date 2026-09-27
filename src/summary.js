@@ -1,5 +1,6 @@
 'use strict';
 const { addDays, daysBetween, localDate, localTime } = require('./time');
+const { predictDeadline } = require('./predict');
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const hourLabel = (h) => `${String(h).padStart(2, '0')}:00`;
@@ -115,6 +116,69 @@ function writeHeadline(s) {
   return text;
 }
 
+/**
+ * Discrete, storable version of the rolling-baseline comparison: activity clearly
+ * above/below the baseline, and any contributor who has commits on record but has
+ * gone quiet for a full comparison window as of this date ("extended inactivity").
+ * Pure function of the summary + commit history; storage happens in generateSummary.
+ */
+function detectFlags(db, config, date, summaryData) {
+  const flags = [];
+  const c = summaryData.comparison;
+
+  if (c.trend === 'above') {
+    flags.push({
+      type: 'activity_above_baseline',
+      detail: c.delta_pct != null
+        ? `${summaryData.total_commits} commits, ${c.delta_pct}% above the ${c.baseline_days}-day average.`
+        : `${summaryData.total_commits} commits, after a quiet ${c.baseline_days}-day stretch.`,
+    });
+  } else if (c.trend === 'below') {
+    flags.push({
+      type: 'activity_below_baseline',
+      detail: `${summaryData.total_commits} commits, ${Math.abs(c.delta_pct)}% below the ${c.baseline_days}-day average.`,
+    });
+  }
+
+  // Contributors with history who have gone quiet for a full comparison window.
+  const n = config.summary.comparisonDays;
+  const cutoff = addDays(date, -n);
+  const quiet = db
+    .prepare(
+      `SELECT contributor, MAX(committed_date) AS last_date FROM commits
+       WHERE committed_date <= ?
+       GROUP BY contributor
+       HAVING last_date <= ?`
+    )
+    .all(date, cutoff);
+  for (const row of quiet) {
+    const idleDays = daysBetween(row.last_date, date);
+    flags.push({
+      type: 'contributor_inactive',
+      detail: `${row.contributor} has had no commits since ${row.last_date} (${idleDays} days).`,
+    });
+  }
+
+  return flags;
+}
+
+/**
+ * Deadline-projection flag, kept separate from detectFlags above since it isn't
+ * a function of the day's summary alone — it needs project_settings.deadline_date
+ * and the commit history up to `date`. Returns [] when there's no deadline set,
+ * not enough history yet, or the projection is on-pace (nothing worth flagging).
+ */
+function detectDeadlineFlag(db, config, date) {
+  const p = predictDeadline(db, config, date);
+  if (p.status !== 'at-risk' && p.status !== 'behind') return [];
+  const pct = Math.round(p.pace_ratio * 100);
+  let detail = `Recent commit pace is ${pct}% of the project's own average, with ${p.days_remaining} day(s) left until the deadline.`;
+  if (p.churn_ratio != null && p.churn_ratio > 0.6) {
+    detail += ` Recent changes lean heavily toward removals/rework (${Math.round(p.churn_ratio * 100)}% of ${p.churn_basis === 'lines' ? 'lines' : 'files'} changed).`;
+  }
+  return [{ type: p.status === 'behind' ? 'deadline_behind' : 'deadline_at_risk', detail }];
+}
+
 // --- saving ----------------------------------------------------------------
 
 function generateSummary(db, config, date, trigger, { force = false } = {}) {
@@ -137,6 +201,12 @@ function generateSummary(db, config, date, trigger, { force = false } = {}) {
      ON CONFLICT(date) DO UPDATE SET total_commits = excluded.total_commits, data = excluded.data,
        trigger = excluded.trigger, generated_at = excluded.generated_at`
   ).run(date, total, JSON.stringify(data), trigger, generatedAt);
+
+  db.prepare('DELETE FROM flags WHERE date = ?').run(date);
+  const insertFlag = db.prepare('INSERT INTO flags (date, type, detail) VALUES (?, ?, ?)');
+  for (const f of detectFlags(db, config, date, data)) insertFlag.run(date, f.type, f.detail);
+  for (const f of detectDeadlineFlag(db, config, date)) insertFlag.run(date, f.type, f.detail);
+
   logRun.run(date, trigger, 'saved', total);
   return { saved: true, summary: { ...data, source: 'saved', trigger, generated_at: generatedAt } };
 }
@@ -189,4 +259,4 @@ function getTrend(db, config, days = 14, now = Date.now()) {
   });
 }
 
-module.exports = { buildSummary, generateSummary, getSummary, catchUp, getTrend };
+module.exports = { buildSummary, generateSummary, getSummary, catchUp, getTrend, detectFlags, detectDeadlineFlag };

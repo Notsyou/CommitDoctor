@@ -24,12 +24,20 @@ function parsePushCommit(c, payload, deliveryId) {
     url: c.url,
     timestamp: c.timestamp,
     deliveryId,
+    // Push payloads list filenames per commit, not line counts. Good enough for
+    // file-level churn; line-level churn (lines_added/lines_deleted) is left
+    // unset here and stays NULL — only the poller's authenticated per-commit
+    // calls (for polled repos) can afford to fetch that.
+    filesAdded: Array.isArray(c.added) ? c.added.length : undefined,
+    filesRemoved: Array.isArray(c.removed) ? c.removed.length : undefined,
+    filesModified: Array.isArray(c.modified) ? c.modified.length : undefined,
   };
 }
 
 function createWebhookRouter({ db, config }) {
   const router = express.Router();
   const store = createStore(db, config);
+  const getTrackedRepo = db.prepare('SELECT tracked_repo FROM project_settings WHERE id = 1');
   const logEvent = db.prepare(
     `INSERT INTO webhook_events (delivery_id, event, repo, status, detail, commits_received, commits_new)
      VALUES (@delivery_id, @event, @repo, @status, @detail, @received, @added)`
@@ -70,8 +78,12 @@ function createWebhookRouter({ db, config }) {
       record(base, 'rejected', 'Push payload has no repository');
       return res.status(400).json({ error: 'Malformed push payload.' });
     }
-    if (config.repo && payload.repository.full_name.toLowerCase() !== config.repo) {
-      record(base, 'ignored', `Repository is not ${config.repo}`);
+    // The dashboard's "Track" button can set this at runtime; .env's GITHUB_REPO
+    // is only the fallback default so upgrading doesn't require re-entering it.
+    const row = getTrackedRepo.get();
+    const trackedRepo = (row && row.tracked_repo) || config.repo || '';
+    if (trackedRepo && payload.repository.full_name.toLowerCase() !== trackedRepo) {
+      record(base, 'ignored', `Repository is not ${trackedRepo}`);
       return res.status(202).json({ ok: true, ignored: 'other repository' });
     }
 
