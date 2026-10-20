@@ -24,10 +24,10 @@ const round = (n) => Math.round(n * 100) / 100;
 function predictDeadline(db, config, date = localDate(Date.now(), config.timezone)) {
   const settings = db.prepare('SELECT deadline_date FROM project_settings WHERE id = 1').get();
   const deadline_date = settings ? settings.deadline_date : null;
-  if (!deadline_date) return { date, deadline_date: null, status: 'no-deadline' };
+  if (!deadline_date) return { date, deadline_date: null, status: 'no-deadline', urgency: 'none' };
 
   const first = db.prepare('SELECT MIN(committed_date) AS d FROM commits').get().d;
-  if (!first) return { date, deadline_date, days_remaining: daysBetween(date, deadline_date), status: 'insufficient-data' };
+  if (!first) return { date, deadline_date, days_remaining: daysBetween(date, deadline_date), status: 'insufficient-data', urgency: 'none' };
 
   const days_remaining = daysBetween(date, deadline_date);
 
@@ -100,7 +100,15 @@ function predictDeadline(db, config, date = localDate(Date.now(), config.timezon
     churn_ratio: churnRatio == null ? null : round(churnRatio),
     churn_basis: churnBasis,
     status,
+    urgency: urgencyForStatus(status, days_remaining),
   };
 }
 
-module.exports = { predictDeadline };
+function urgencyForStatus(status, days_remaining){
+  if (status !== 'at-risk' && status !== 'behind') return 'none';
+  if (days_remaining == null || days_remaining > 7) return 'none';
+  if (days_remaining <= 1) return 'final';
+  if (days_remaining <= 3) return 'urgent';
+  return 'reminder';
+}
+module.exports = { predictDeadline, urgencyForStatus };

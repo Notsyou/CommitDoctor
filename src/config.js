@@ -21,6 +21,13 @@ function loadConfig(env = process.env) {
     // path). Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
     tokenEncryptionKey: env.TOKEN_ENCRYPTION_KEY || '',
     pollIntervalMs: Math.max(60_000, num(env.POLL_INTERVAL_MS, 3 * 60_000)),
+    smtp: {
+      host: (env.SMTP_HOST || '').trim(),
+      port: num(env.SMTP_PORT, 587),
+      user: env.SMTP_USER || '',
+      pass: env.SMTP_PASS || '',
+      from: env.SMTP_FROM || env.SMTP_USER || '',
+    },
     summary: {
       minCommits: Math.max(1, num(env.SUMMARY_MIN_COMMITS, 1)),
       comparisonDays: Math.max(1, num(env.SUMMARY_COMPARISON_DAYS, 21)),
