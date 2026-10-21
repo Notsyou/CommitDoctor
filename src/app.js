@@ -4,14 +4,14 @@ const express = require('express');
 const { createWebhookRouter } = require('./webhook');
 const { createApiRouter } = require('./api');
 
-function createApp({ db, config }) {
+function createApp({ db, config, mailer = null }) {
   const app = express();
   app.disable('x-powered-by');
 
   // GitHub signs the exact bytes it sends, so keep them for signature checking.
   const keepRawBody = (req, _res, buf) => { req.rawBody = buf; };
   app.use('/webhook/github', express.json({ limit: '10mb', verify: keepRawBody }), createWebhookRouter({ db, config }));
-  app.use('/api', express.json({ limit: '1mb' }), createApiRouter({ db, config }));
+  app.use('/api', express.json({ limit: '1mb' }), createApiRouter({ db, config, mailer }));
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   // eslint-disable-next-line no-unused-vars

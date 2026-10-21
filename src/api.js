@@ -4,6 +4,7 @@ const express = require('express');
 const { localDate, localTime, addDays, daysBetween, isDateStr } = require('./time');
 const { getSummary, generateSummary, getTrend } = require('./summary');
 const { predictDeadline } = require('./predict');
+const { checkDeadlineUrgency } = require('./notify');
 const { encryptToken } = require('./crypto');
 const { testRepoAccess, pollOneRepo } = require('./poller');
 
@@ -20,7 +21,7 @@ function safeEqual(a, b) {
 
 const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?\/[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 
-function createApiRouter({ db, config }) {
+function createApiRouter({ db, config, mailer = null }) {
   const router = express.Router();
   const tz = config.timezone;
 
@@ -279,6 +280,23 @@ function createApiRouter({ db, config }) {
     const info = db.prepare('DELETE FROM subscribers WHERE id = ?').run(id);
     if (info.changes === 0) return res.status(404).json({ error: 'Subscriber not found.' });
     return res.status(204).end();
+  });
+
+  router.post('/notifications/test', requireAdmin, async (req, res) => {
+    if (!mailer) return res.status(503).json({ error: 'Email is off. Set SMTP_HOST in .env and restart.' });
+    const to = String((req.body && req.body.to) || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: 'A valid "to" email is required.' });
+    try{
+      await mailer.sendMail({ to, subject: 'Commit Doctor test email', html: '<p>If you can read this, email works. </p>'});
+      return res.json({ sent: true, to });
+    } catch(err){
+      return res.status(502).json({ error: `SMTP send failed: ${err.message}` });
+    }
+  });
+
+  router.post('/notifications/check', requireAdmin, async (_req, res) => {
+    if (!mailer) return res.status(503).json({ error: 'Email is off. Set SMTP_HOST in .env and restart.' });
+    return res.json(await checkDeadlineUrgency(db, config, mailer));
   });
 
   router.get('/flags', (req, res) => {
