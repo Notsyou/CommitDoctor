@@ -7,6 +7,7 @@ const { predictDeadline } = require('./predict');
 const { checkDeadlineUrgency } = require('./notify');
 const { encryptToken } = require('./crypto');
 const { testRepoAccess, pollOneRepo } = require('./poller');
+const { connectWebhook } = require('./hooks');
 
 const clamp = (v, lo, hi, dflt) => {
   const n = parseInt(v, 10);
@@ -49,6 +50,30 @@ function createApiRouter({ db, config, mailer = null }) {
     };
   };
 
+  // Is GitHub actually delivering for the tracked repo? Judged from the newest
+  // delivery, so a later failure (e.g. a changed secret) shows up right away.
+  //   waiting    nothing received yet
+  //   failing    the newest delivery was rejected (bad secret, wrong content type)
+  //   other_repo deliveries are arriving, but from a different repository
+  //   connected  the newest delivery came from the tracked repo (ping or push)
+  const lastEvent = db.prepare('SELECT event, repo, status, detail, received_at FROM webhook_events ORDER BY id DESC LIMIT 1');
+  const lastOkFor = db.prepare(
+    `SELECT event, received_at FROM webhook_events
+     WHERE status = 'accepted' AND event IN ('ping', 'push') AND lower(repo) = ? ORDER BY id DESC LIMIT 1`
+  );
+  function webhookStatus(trackedRepo) {
+    const last = lastEvent.get();
+    const ok = trackedRepo ? lastOkFor.get(trackedRepo) : null;
+    const base = { last_ok_event: ok ? ok.event : null, last_ok_at: ok ? ok.received_at : null };
+    if (!last) return { state: 'waiting', ...base };
+    if (last.status === 'rejected') return { state: 'failing', detail: last.detail, at: last.received_at, ...base };
+    const lastRepo = (last.repo || '').toLowerCase();
+    if (trackedRepo && lastRepo && lastRepo !== trackedRepo) {
+      return { state: 'other_repo', repo_seen: last.repo, at: last.received_at, ...base };
+    }
+    return { state: ok ? 'connected' : 'waiting', ...base };
+  }
+
   router.get('/health', (_req, res) => res.json({ ok: true }));
 
   // Everything the dashboard header needs in one call.
@@ -64,6 +89,10 @@ function createApiRouter({ db, config, mailer = null }) {
     const lastPush = db
       .prepare("SELECT received_at FROM webhook_events WHERE status = 'accepted' AND event = 'push' ORDER BY id DESC LIMIT 1")
       .get();
+    const lastPing = db
+      .prepare("SELECT received_at, repo FROM webhook_events WHERE status = 'accepted' AND event = 'ping' ORDER BY id DESC LIMIT 1")
+      .get();
+    const settings = readSettings();
     const lastSaved = db.prepare('SELECT date FROM summaries ORDER BY date DESC LIMIT 1').get();
     const activityCounts = db
       .prepare(
@@ -79,9 +108,11 @@ function createApiRouter({ db, config, mailer = null }) {
       secret_configured: Boolean(config.webhookSecret),
       totals,
       last_push_at: lastPush ? lastPush.received_at : null,
+      last_ping_at: lastPing ? lastPing.received_at : null,
+      webhook: webhookStatus(settings.tracked_repo),
       last_saved_date: lastSaved ? lastSaved.date : null,
       activity_log: activityCounts,
-      settings: readSettings(),
+      settings,
     });
   });
 
@@ -189,6 +220,49 @@ function createApiRouter({ db, config, mailer = null }) {
       `UPDATE project_settings SET deadline_date = ?, tracked_repo = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 1`
     ).run(deadline_date, tracked_repo);
     return res.status(200).json(readSettings());
+  });
+
+  // --- Webhook setup helpers for the dashboard: the values to paste into GitHub,
+  // and a one-click "create it for me" that uses a token once and forgets it. ---
+
+  const URL_RE = /^https?:\/\/[^\s/]+(\/\S*)?$/i;
+
+  router.get('/webhook-setup', requireAdmin, (_req, res) => {
+    res.json({
+      tracked_repo: readSettings().tracked_repo,
+      secret: config.webhookSecret,
+      content_type: 'application/json',
+      events: ['push'],
+      path: '/webhook/github',
+    });
+  });
+
+  router.post('/webhook-setup/connect', requireAdmin, async (req, res) => {
+    const body = req.body || {};
+    const repo = String(body.repo || '').trim().toLowerCase();
+    const token = String(body.token || '').trim();
+    const payloadUrl = String(body.payload_url || '').trim();
+    if (!REPO_RE.test(repo)) return res.status(400).json({ error: 'repo must look like owner/name.' });
+    if (!token) return res.status(400).json({ error: 'A GitHub token is required to create the webhook.' });
+    if (!URL_RE.test(payloadUrl)) return res.status(400).json({ error: 'payload_url must be a full http(s) URL.' });
+    if (/^https?:\/\/(localhost|127\.|\[::1\])/i.test(payloadUrl)) {
+      return res.status(400).json({ error: 'GitHub cannot reach localhost. Use a public URL (for example from ngrok or smee.io).' });
+    }
+
+    let hook;
+    try {
+      hook = await connectWebhook({ repo, token, payloadUrl, secret: config.webhookSecret });
+    } catch (err) {
+      const hint = err.status === 404 || err.status === 403
+        ? ' The token needs admin access to the repo (classic: admin:repo_hook; fine-grained: Webhooks read and write).'
+        : '';
+      return res.status(422).json({ error: `GitHub refused: ${err.message}${hint}` });
+    }
+
+    db.prepare(
+      `UPDATE project_settings SET tracked_repo = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 1`
+    ).run(repo);
+    return res.status(hook.created ? 201 : 200).json({ ok: true, hook_id: hook.id, created: hook.created, settings: readSettings() });
   });
 
   // --- Tracked repos (polled via GitHub's API using a per-repo token; works for

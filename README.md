@@ -12,10 +12,10 @@ deadline and flags notable deviations from the recent-activity baseline.
 ```bash
 # needs Node.js 22.13 or newer (check with: node -v)
 npm install
-cp .env.example .env # then set GITHUB_WEBHOOK_SECRET (and GITHUB_REPO if you like)
+cp .env.example .env # optional: GITHUB_WEBHOOK_SECRET is auto-generated if left empty
 npm run seed # optional: two weeks of demo data
 npm start # http://localhost:3000
-npm test # 29 tests
+npm test # 39 tests
 ```
 
 Try it without GitHub (signs the request the same way GitHub does):
@@ -27,15 +27,18 @@ npm run simulate -- --event ping
 
 ## Connecting a real repository
 
-1. Expose your server to the internet. While developing, use a tunnel such as
-   `npx smee-client`, `ngrok http 3000` or `cloudflared tunnel --url http://localhost:3000`.
-2. In the repository: **Settings > Webhooks > Add webhook**
-   - Payload URL: `https://<your-host>/webhook/github`
-   - Content type: **application/json** (required; other types cannot be signature-checked)
-   - Secret: the same value as `GITHUB_WEBHOOK_SECRET`
-   - Events: **Just the push event**
-3. GitHub sends a `ping` right away. The dashboard header should change to "Last push …" after your first real push.
-4. Set the repository to track and (optionally) a deadline via `POST /api/settings`, or through the dashboard once it's wired to that endpoint.
+From the dashboard:
+
+1. Type `owner/name` (or paste the GitHub URL) and click **Track via webhook**. A setup panel opens.
+2. **Public URL:** GitHub can't reach `localhost`. While developing, run `npx smee-client --target http://localhost:3000/webhook/github`
+   (or `ngrok http 3000`) and paste the public URL into step 1. On a public server it's filled in for you.
+3. Then either:
+   - **2a. Automatic:** paste a GitHub token with webhook access (classic `admin:repo_hook`, or fine-grained
+     *Webhooks: read and write*) and click **Create webhook on GitHub**. The token is used once and not stored.
+   - **2b. Manual:** open the linked *Add webhook* page and copy the Payload URL and Secret shown in the panel.
+4. The panel switches to "Connected" when GitHub's ping arrives, and shows the last push after that.
+
+The webhook secret comes from `GITHUB_WEBHOOK_SECRET` if set; otherwise one is generated on first start and kept in the database.
 
 ## How it works
 
@@ -52,14 +55,14 @@ npm run simulate -- --event ping
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `GITHUB_WEBHOOK_SECRET` | none | Required. Deliveries are rejected while empty. |
+| `GITHUB_WEBHOOK_SECRET` | auto-generated | If empty, a random secret is generated and stored in the database. |
 | `GITHUB_REPO` | any | `owner/name`. Fallback default; can be overridden at runtime via `POST /api/settings`. |
 | `TIMEZONE` | `Asia/Manila` | Defines where a day starts and ends. |
 | `SUMMARY_MIN_COMMITS` | `1` | Days with fewer commits are not saved (the skip is logged). |
 | `SUMMARY_COMPARISON_DAYS` | `7` | Length of the "recent days" rolling baseline, used for both the summary comparison and inactivity flags. |
 | `CHURN_WINDOW_DAYS` | `21` | Rolling window for the deadline prediction's commit rate and code churn. |
 | `DB_PATH` | `./data/commitdoctor.db` | SQLite file. |
-| `ADMIN_TOKEN` | none | If set, required as `Authorization: Bearer <token>` for write endpoints (`/api/summaries/:date/generate`, `/api/settings`, `/api/subscribers`). |
+| `ADMIN_TOKEN` | none | If set, required as `Authorization: Bearer <token>` for write endpoints (`/api/summaries/:date/generate`, `/api/settings`, `/api/subscribers`, `/api/webhook-setup`). |
 | `PORT` | `3000` | |
 
 ## API
@@ -75,6 +78,8 @@ npm run simulate -- --event ping
 | `GET /api/commits?date=YYYY-MM-DD` | Commits of a day |
 | `GET /api/settings` | Current deadline and tracked repo, plus days remaining |
 | `POST /api/settings` | Set/clear `deadline_date` and/or `tracked_repo` — admin |
+| `GET /api/webhook-setup` | Secret and values to paste into GitHub — admin |
+| `POST /api/webhook-setup/connect` | Create/update the GitHub webhook with a one-time token (`repo`, `token`, `payload_url`) — admin |
 | `GET /api/subscribers` | Notification recipients |
 | `POST /api/subscribers` | Add a recipient (`name`, `email`) — admin |
 | `DELETE /api/subscribers/:id` | Remove a recipient — admin |

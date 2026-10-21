@@ -66,8 +66,10 @@ function nextUrl(linkHeader) {
   return m ? m[1] : null;
 }
 
-async function ghFetch(url, token) {
+async function ghFetch(url, token, { method = 'GET', body } = {}) {
   const res = await fetch(url, {
+    method,
+    body: body === undefined ? undefined : JSON.stringify(body),
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
@@ -88,7 +90,9 @@ async function ghFetch(url, token) {
     throw err;
   }
   if (!res.ok) {
-    const err = new Error(`GitHub API returned ${res.status}.`);
+    const body = await res.json().catch(() => ({}));
+    const detail = (body.errors && body.errors[0] && body.errors[0].message) || body.message;
+    const err = new Error(`GitHub API returned ${res.status}${detail ? `: ${detail}` : ''}.`);
     err.status = res.status;
     throw err;
   }
@@ -186,4 +190,4 @@ function startPoller({ db, config, log = console, intervalMs = 3 * 60_000 }) {
   return () => clearInterval(timer);
 }
 
-module.exports = { startPoller, pollOneRepo, testRepoAccess, parseApiCommit, fetchCommitDetail, nextUrl };
+module.exports = { ghFetch, API, startPoller, pollOneRepo, testRepoAccess, parseApiCommit, fetchCommitDetail, nextUrl };

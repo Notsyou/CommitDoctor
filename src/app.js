@@ -3,10 +3,12 @@ const path = require('path');
 const express = require('express');
 const { createWebhookRouter } = require('./webhook');
 const { createApiRouter } = require('./api');
+const { ensureWebhookSecret } = require('./hooks');
 
 function createApp({ db, config, mailer = null }) {
   const app = express();
   app.disable('x-powered-by');
+  ensureWebhookSecret(db, config);
 
   // GitHub signs the exact bytes it sends, so keep them for signature checking.
   const keepRawBody = (req, _res, buf) => { req.rawBody = buf; };

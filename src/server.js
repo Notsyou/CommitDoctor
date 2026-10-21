@@ -18,9 +18,7 @@ const server = app.listen(config.port, () => {
   console.log(`  Timezone         : ${config.timezone}`);
   console.log(`  Repository       : ${config.repo || '(any - set GITHUB_REPO to lock to one)'}`);
   console.log(`  Email            : ${mailer ? `on (${config.smtp.host})` : 'off (set SMTP_HOST to enable)'}`);
-  if (!config.webhookSecret) {
-    console.warn('  WARNING: GITHUB_WEBHOOK_SECRET is empty. All webhook deliveries will be rejected until you set it.');
-  }
+  console.log(`  Webhook secret   : ${process.env.GITHUB_WEBHOOK_SECRET ? 'from .env' : 'auto-generated (shown in the dashboard setup panel)'}`);
 });
 
 const shutdown = () => server.close(() => { db.close(); process.exit(0); });
