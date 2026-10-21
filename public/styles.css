@@ -188,6 +188,28 @@ td.wrap { white-space: normal; min-width: 12rem; }
 .pill-ok { color: var(--teal); font-weight: 600; }
 .pill-bad { color: var(--signal); font-weight: 600; }
 
+.flag-list { list-style: none; margin: 0; padding: 0; }
+.flag-list li { padding: .5rem 0 .5rem .75rem; border-left: 3px solid var(--rule); margin-bottom: .5rem; }
+.flag-list li[data-tone="bad"] { border-left-color: var(--signal); }
+.flag-list li[data-tone="ok"] { border-left-color: var(--teal); }
+.flag-list strong { display: block; font-size: .9rem; }
+.flag-list span { color: var(--muted); font-size: .85rem; }
+
+.sub-note { margin: 0 0 .5rem; font-size: .85rem; }
+.sub-list { list-style: none; margin: 0 0 .6rem; padding: 0; }
+.sub-list li { display: flex; align-items: baseline; gap: .5rem; padding: .35rem 0; border-bottom: 1px solid var(--rule); }
+.sub-list li > div { flex: 1; min-width: 0; }
+.sub-list small { display: block; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.sub-list li.empty { display: block; border: 0; }
+.sub-add { display: grid; grid-template-columns: 1fr; gap: .4rem; }
+.sub-add input, .sub-add button {
+  font: inherit; font-size: .9rem; padding: .4rem .6rem; border: 1px solid var(--rule);
+  border-radius: 6px; background: var(--surface); color: var(--ink); min-width: 0;
+}
+.sub-add button { cursor: pointer; font-weight: 600; }
+.sub-add button:hover { border-color: var(--ink); }
+.sub-add button:disabled { opacity: .5; cursor: not-allowed; }
+
 @media (prefers-reduced-motion: reduce) {
   .trace-line.draw { animation: none; }
 }

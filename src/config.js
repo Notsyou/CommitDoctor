@@ -23,7 +23,11 @@ function loadConfig(env = process.env) {
     pollIntervalMs: Math.max(60_000, num(env.POLL_INTERVAL_MS, 3 * 60_000)),
     summary: {
       minCommits: Math.max(1, num(env.SUMMARY_MIN_COMMITS, 1)),
-      comparisonDays: Math.max(1, num(env.SUMMARY_COMPARISON_DAYS, 21)),
+      comparisonDays: Math.max(1, num(env.SUMMARY_COMPARISON_DAYS, 7)),
+    },
+    prediction: {
+      // Rolling window for the deadline projection's commit rate and code churn.
+      windowDays: Math.max(1, num(env.CHURN_WINDOW_DAYS, 21)),
     },
   };
 }

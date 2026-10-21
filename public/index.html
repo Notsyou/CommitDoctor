@@ -87,6 +87,21 @@
           <h2 id="vitals-title">Vitals</h2>
           <dl class="vitals" id="vitals"></dl>
         </section>
+        <section aria-labelledby="flags-title">
+          <h2 id="flags-title">Flags</h2>
+          <ul class="flag-list" id="flags"></ul>
+        </section>
+        <section aria-labelledby="subs-title">
+          <h2 id="subs-title">Notify</h2>
+          <p class="muted sub-note">People who will get deadline reminders and flag alerts by email.</p>
+          <ul class="sub-list" id="sub-list"></ul>
+          <form class="sub-add" id="sub-form">
+            <input type="text" id="sub-name" placeholder="Name" aria-label="Subscriber name" autocomplete="off">
+            <input type="email" id="sub-email" placeholder="Email" aria-label="Subscriber email" autocomplete="off">
+            <button type="submit" id="sub-add-btn">Add</button>
+          </form>
+          <p class="track-hint" id="sub-hint" hidden></p>
+        </section>
         <section aria-labelledby="hours-title">
           <h2 id="hours-title">Hour by hour</h2>
           <div id="hours"></div>

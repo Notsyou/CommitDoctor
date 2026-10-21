@@ -11,6 +11,8 @@ const round = (n) => Math.round(n * 100) / 100;
  * this feature to — not a trained or historically-calibrated predictor.
  *
  * Method:
+ *  - N is CHURN_WINDOW_DAYS (default 21), separate from the 7-day summary
+ *    baseline, matching the paper's 21-day rolling period for churn.
  *  - pace_ratio = (commits/day over the last N days) / (commits/day over the
  *    whole project so far). Below 1 means slowing down relative to the
  *    project's own history.
@@ -31,7 +33,7 @@ function predictDeadline(db, config, date = localDate(Date.now(), config.timezon
 
   const days_remaining = daysBetween(date, deadline_date);
 
-  const n = config.summary.comparisonDays;
+  const n = config.prediction.windowDays;
   let windowStart = addDays(date, -n);
   if (first > windowStart) windowStart = first;
   const windowDays = Math.max(1, daysBetween(windowStart, date));

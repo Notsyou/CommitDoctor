@@ -15,7 +15,7 @@ npm install
 cp .env.example .env # then set GITHUB_WEBHOOK_SECRET (and GITHUB_REPO if you like)
 npm run seed # optional: two weeks of demo data
 npm start # http://localhost:3000
-npm test # 16 tests
+npm test # 29 tests
 ```
 
 Try it without GitHub (signs the request the same way GitHub does):
@@ -56,7 +56,8 @@ npm run simulate -- --event ping
 | `GITHUB_REPO` | any | `owner/name`. Fallback default; can be overridden at runtime via `POST /api/settings`. |
 | `TIMEZONE` | `Asia/Manila` | Defines where a day starts and ends. |
 | `SUMMARY_MIN_COMMITS` | `1` | Days with fewer commits are not saved (the skip is logged). |
-| `SUMMARY_COMPARISON_DAYS` | `21` | Length of the "recent days" rolling baseline, used for both the summary comparison and inactivity flags. |
+| `SUMMARY_COMPARISON_DAYS` | `7` | Length of the "recent days" rolling baseline, used for both the summary comparison and inactivity flags. |
+| `CHURN_WINDOW_DAYS` | `21` | Rolling window for the deadline prediction's commit rate and code churn. |
 | `DB_PATH` | `./data/commitdoctor.db` | SQLite file. |
 | `ADMIN_TOKEN` | none | If set, required as `Authorization: Bearer <token>` for write endpoints (`/api/summaries/:date/generate`, `/api/settings`, `/api/subscribers`). |
 | `PORT` | `3000` | |

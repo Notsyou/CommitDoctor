@@ -7,7 +7,7 @@
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : null);
 
-  const state = { overview: null, trend: [], summary: null, commits: [], date: null, token: null, drawn: false, key: '', pollRepos: [], prediction: null };
+  const state = { overview: null, trend: [], summary: null, commits: [], flags: [], date: null, token: null, drawn: false, key: '', pollRepos: [], prediction: null, subscribers: [] };
 
   // --- helpers ---------------------------------------------------------------
   async function api(path, opts = {}) {
@@ -177,6 +177,69 @@
       if (err.status === 401) {
         const t = window.prompt('This server needs an admin token to remove a polled repo. Enter it:');
         if (t) { state.token = t; return removePolledRepo(id); }
+      } else {
+        window.alert(err.body && err.body.error ? err.body.error : err.message);
+      }
+    }
+    return undefined;
+  }
+
+  // --- subscribers -----------------------------------------------------------------
+  function renderSubscribers() {
+    const list = state.subscribers;
+    const host = $('#sub-list');
+    if (!list.length) { host.innerHTML = '<li class="empty">Nobody yet.</li>'; return; }
+    host.innerHTML = list.map((s) => `<li>
+      <div>${esc(s.name)}<small>${esc(s.email)}</small></div>
+      <button type="button" class="text-btn sub-remove" data-id="${s.id}" aria-label="Remove ${esc(s.name)}">Remove</button>
+    </li>`).join('');
+  }
+
+  async function loadSubscribers() {
+    try {
+      state.subscribers = await api('/api/subscribers');
+      renderSubscribers();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function addSubscriber() {
+    const btn = $('#sub-add-btn');
+    const nameInput = $('#sub-name');
+    const emailInput = $('#sub-email');
+    const name = nameInput.value.trim();
+    const email = emailInput.value.trim();
+    const hint = $('#sub-hint');
+    hint.hidden = true;
+    if (!name || !email) return undefined;
+    btn.disabled = true;
+    try {
+      await api('/api/subscribers', { method: 'POST', token: state.token, body: { name, email } });
+      nameInput.value = '';
+      emailInput.value = '';
+      await loadSubscribers();
+    } catch (err) {
+      if (err.status === 401) {
+        const t = window.prompt('This server needs an admin token to add a subscriber. Enter it:');
+        if (t) { state.token = t; btn.disabled = false; return addSubscriber(); }
+      } else {
+        hint.hidden = false;
+        hint.textContent = err.body && err.body.error ? err.body.error : err.message;
+      }
+    }
+    btn.disabled = false;
+    return undefined;
+  }
+
+  async function removeSubscriber(id) {
+    try {
+      await api(`/api/subscribers/${id}`, { method: 'DELETE', token: state.token });
+      await loadSubscribers();
+    } catch (err) {
+      if (err.status === 401) {
+        const t = window.prompt('This server needs an admin token to remove a subscriber. Enter it:');
+        if (t) { state.token = t; return removeSubscriber(id); }
       } else {
         window.alert(err.body && err.body.error ? err.body.error : err.message);
       }
@@ -395,6 +458,26 @@
       .join('');
   }
 
+  const FLAG_LABEL = {
+    activity_above_baseline: ['Activity above baseline', 'ok'],
+    activity_below_baseline: ['Activity below baseline', 'bad'],
+    contributor_inactive: ['Contributor inactive', 'bad'],
+    deadline_at_risk: ['Deadline at risk', 'bad'],
+    deadline_behind: ['Behind deadline pace', 'bad'],
+  };
+
+  function renderFlags() {
+    const list = state.flags;
+    if (!list.length) {
+      $('#flags').innerHTML = `<li class="empty" style="border:0;padding:0">${state.summary.source === 'saved' ? 'Nothing unusual on this day.' : 'Flags are checked when the day\'s summary is saved.'}</li>`;
+      return;
+    }
+    $('#flags').innerHTML = list.map((f) => {
+      const [label, tone] = FLAG_LABEL[f.type] || [f.type, ''];
+      return `<li data-tone="${tone}"><strong>${esc(label)}</strong><span>${esc(f.detail)}</span></li>`;
+    }).join('');
+  }
+
   function renderHours() {
     const h = state.summary.hourly;
     const max = Math.max(1, ...h);
@@ -412,6 +495,7 @@
     renderWho();
     renderCommits();
     renderVitals();
+    renderFlags();
     renderHours();
   }
 
@@ -419,15 +503,16 @@
   async function refresh({ force = false } = {}) {
     const overview = await api('/api/overview');
     if (!state.date) state.date = overview.today;
-    const [trend, summary, commits] = await Promise.all([
+    const [trend, summary, commits, flags] = await Promise.all([
       api('/api/trend?days=14'),
       api(`/api/summaries/${state.date}`),
       api(`/api/commits?date=${state.date}`),
+      api(`/api/flags?date=${state.date}`),
     ]);
     state.overview = overview;
-    const key = JSON.stringify([overview.totals, overview.last_saved_date, trend, summary, commits, state.date]);
+    const key = JSON.stringify([overview.totals, overview.last_saved_date, trend, summary, commits, flags, state.date]);
     if (!force && key === state.key) { renderStatus(); return; } // nothing changed; keep focus and hover as they are
-    Object.assign(state, { trend, summary, commits, key });
+    Object.assign(state, { trend, summary, commits, flags, key });
     renderAll();
   }
 
@@ -522,6 +607,12 @@
       if (btn) removePolledRepo(btn.dataset.id);
     });
 
+    $('#sub-form').addEventListener('submit', (e) => { e.preventDefault(); addSubscriber(); });
+    $('#sub-list').addEventListener('click', (e) => {
+      const btn = e.target.closest('.sub-remove');
+      if (btn) removeSubscriber(btn.dataset.id);
+    });
+
     const trace = $('#trace');
     trace.addEventListener('click', (e) => { const r = e.target.closest('.hit'); if (r) select(r.dataset.date); });
     trace.addEventListener('keydown', (e) => {
@@ -546,4 +637,5 @@
   refresh({ force: true }).catch(showError);
   loadPollList();
   loadPrediction();
+  loadSubscribers();
 })();

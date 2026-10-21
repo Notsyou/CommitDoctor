@@ -3,10 +3,12 @@ const { config } = require('./config');
 const { openDb } = require('./db');
 const { createApp } = require('./app');
 const { startScheduler } = require('./scheduler');
+const { startPoller } = require('./poller');
 
 const db = openDb(config.dbPath);
 const app = createApp({ db, config });
 startScheduler({ db, config });
+startPoller({ db, config, intervalMs: config.pollIntervalMs });
 
 const server = app.listen(config.port, () => {
   console.log(`Commit Doctor listening on http://localhost:${config.port}`);
