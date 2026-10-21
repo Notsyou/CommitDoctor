@@ -5,6 +5,11 @@ const { createStore } = require('./store');
 const API = 'https://api.github.com';
 const UA = 'CommitDoctor';
 
+// GitHub's `since` filters on the commit's own date, not when it was pushed, so a
+// commit made before the last poll but pushed after it would never be returned.
+// Re-asking for a trailing window catches those; already-stored SHAs are skipped.
+const LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
+
 const STATUS_ADDED = new Set(['added', 'copied']);
 const STATUS_REMOVED = new Set(['removed']);
 const STATUS_MODIFIED = new Set(['modified', 'renamed', 'changed']);
@@ -124,6 +129,7 @@ async function pollOneRepo({ db, config, row, log = console }) {
     `UPDATE tracked_repos SET last_since = ?, last_polled_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
        last_error = ?, default_branch = COALESCE(?, default_branch) WHERE id = ?`
   );
+  const isStored = db.prepare('SELECT 1 FROM commits WHERE sha = ?');
 
   let token;
   try {
@@ -136,11 +142,11 @@ async function pollOneRepo({ db, config, row, log = console }) {
     let branch = row.default_branch;
     if (!branch) ({ defaultBranch: branch } = await testRepoAccess(row.repo, token));
     const nowIso = new Date().toISOString();
-    const raw = await fetchNewCommits(row.repo, token, row.last_since);
-    const fresh = raw.filter((c) => c && c.sha);
-    // One detail call per new commit for churn stats. `since` already limits
-    // the list to commits newer than the last poll, so this is bounded by
-    // how much actually landed since then, not the whole repo history.
+    const since = row.last_since ? new Date(Date.parse(row.last_since) - LOOKBACK_MS).toISOString() : null;
+    const raw = await fetchNewCommits(row.repo, token, since);
+    const fresh = raw.filter((c) => c && c.sha && !isStored.get(c.sha));
+    // One detail call per new commit for churn stats. Already-stored SHAs are
+    // filtered out above, so the lookback window costs list calls only.
     const mapped = [];
     for (const c of fresh) {
       let detail;
