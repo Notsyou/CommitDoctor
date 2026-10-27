@@ -231,3 +231,6 @@ td.wrap { white-space: normal; min-width: 12rem; }
 @media (prefers-reduced-motion: reduce) {
   .trace-line.draw { animation: none; }
 }
+
+.lines .add { color: #1a7f4b; }
+.lines .del { color: #b42318; }

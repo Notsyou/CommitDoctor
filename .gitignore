@@ -4,4 +4,3 @@ data/*.db-wal
 data/*.db-shm
 commitdoctor.db
 .env
-.env.example

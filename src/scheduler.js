@@ -29,7 +29,7 @@ function startScheduler({ db, config, mailer = null, log = console, intervalMs =
     if (today === lastDate) return;
     const result = generateSummary(db, config, lastDate, 'scheduled');
     log.info(`[scheduler] ${lastDate}: ${result.saved ? 'summary saved' : `skipped (${result.reason})`}`);
-    if (result.saved && mailer){
+    if ((result.saved || result.flagged) && mailer){
       const flags = db.prepare('SELECT type, detail FROM flags WHERE date = ?').all(lastDate);
       notifyFlags(db, config, mailer, lastDate, flags, log).catch((err) => log.error(`[scheduler] flag email failed: ${err.message}`));
     }
