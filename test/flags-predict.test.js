@@ -92,17 +92,29 @@ test('activity that stopped weeks ago is behind', () => {
   assert.equal(p.pace_ratio, 0);
 });
 
-test('a slowdown to about half the usual pace is at-risk', () => {
+test('a slowdown to about half the earlier pace is at-risk', () => {
   const { db, config } = makeCtx();
   const store = createStore(db, config);
-  for (let i = 0; i < 30; i++) {
+  // Days 0-43: two commits a day. Last 7 days (44-50): one a day = half the pace.
+  for (let i = 0; i < 44; i++) {
     store.addCommit(commit(addDays(START, i), 10, 'a'));
     store.addCommit(commit(addDays(START, i), 11, 'a'));
   }
-  for (let i = 30; i < 51; i++) if (i % 2) store.addCommit(commit(addDays(START, i), 10, 'a'));
+  for (let i = 44; i < 51; i++) store.addCommit(commit(addDays(START, i), 10, 'a'));
   setDeadline(db, addDays(START, 70));
   const p = predictDeadline(db, config, addDays(START, 50));
+  assert.equal(p.pace_ratio, 0.5);
   assert.equal(p.status, 'at-risk');
+});
+
+test('a young project has too little history to predict', () => {
+  const { db, config } = makeCtx();
+  const store = createStore(db, config);
+  for (let i = 0; i < 5; i++) store.addCommit(commit(addDays(START, i), 10, 'a'));
+  setDeadline(db, addDays(START, 30));
+  const p = predictDeadline(db, config, addDays(START, 4));
+  assert.equal(p.status, 'insufficient-data');
+  assert.equal(p.pace_ratio, null);
 });
 
 test('heavy deletion churn turns on-pace into at-risk', () => {
@@ -123,13 +135,14 @@ test('a past deadline is reported as passed', () => {
   assert.equal(predictDeadline(db, config, addDays(START, 3)).status, 'deadline-passed');
 });
 
-test('prediction uses its own 21-day window, not the 7-day summary baseline', () => {
+test('pace uses the 7-day window; churn keeps its own 21-day window', () => {
   const { db, config } = makeCtx();
   const store = createStore(db, config);
   for (let i = 0; i < 40; i++) store.addCommit(commit(addDays(START, i), 10, 'a'));
   setDeadline(db, addDays(START, 60));
-  assert.equal(config.summary.comparisonDays, 7);
-  assert.equal(predictDeadline(db, config, addDays(START, 39)).window_days, 21);
+  const p = predictDeadline(db, config, addDays(START, 39));
+  assert.equal(p.window_days, 7);
+  assert.equal(p.churn_window_days, 21);
 });
 
 test('saving a summary while behind pace stores a deadline flag', () => {

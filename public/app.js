@@ -276,9 +276,9 @@
       el.innerHTML = `${dot}${strong} (${Math.abs(p.days_remaining)} day(s) ago).`;
       return;
     }
-    const paceNote = p.recent_commit_rate >= p.overall_commit_rate
-      ? `averaging ${p.recent_commit_rate} Commits /day over the last ${p.window_days} day(s), matching or beating your overall average of ${p.overall_commit_rate}/day`
-      : `averaging ${p.recent_commit_rate} Commits /day over the last ${p.window_days} day(s), down from your overall average of ${p.overall_commit_rate}/day`;
+    const paceNote = p.recent_commit_rate >= p.earlier_commit_rate
+      ? `averaging ${p.recent_commit_rate} commits/day over the last ${p.window_days} day(s), matching or beating the ${p.earlier_commit_rate}/day before that`
+      : `averaging ${p.recent_commit_rate} commits/day over the last ${p.window_days} day(s), down from ${p.earlier_commit_rate}/day before that`;
     el.innerHTML = `${dot}${strong} — ${paceNote}. ${p.days_remaining} day(s) left until the deadline.`;
   }
 
@@ -407,8 +407,9 @@
     $('#who').innerHTML = list.map((c) => {
       const span = c.first_time === c.last_time ? c.first_time : `${c.first_time} to ${c.last_time}`;
       const alias = c.display_name && c.display_name !== c.name ? `<small>${esc(c.display_name)}</small>` : '';
+      const lines = c.lines_changed == null ? '<small> lines not available </small>' : `<small class="lines"><span class="add">+${c.lines_added}</span> <span class = "del">&minus;${c.lines_deleted}</span> (${c.lines_changed} changed)</small>`;
       return `<div class="who-row">
-        <div class="who-name">${esc(c.name)}${alias}<small>${esc(span)}</small></div>
+        <div class="who-name">${esc(c.name)}${alias}<small>${esc(span)}</small>${lines}</div>
         <div class="bar" role="img" aria-label="${esc(c.name)}: ${plural(c.commits, 'commit')}"><span style="width:${(c.commits / max) * 100}%"></span></div>
         <div class="who-count">${c.commits}</div>
       </div>`;

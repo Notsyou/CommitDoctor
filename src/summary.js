@@ -26,11 +26,16 @@ function buildSummary(db, config, date) {
     if (r.is_merge) merges += 1;
     let p = byPerson.get(r.contributor);
     if (!p) {
-      p = { name: r.contributor, display_name: r.author_name, commits: 0, merges: 0, first_at: r.committed_at, last_at: r.committed_at };
+      p = { name: r.contributor, display_name: r.author_name, commits: 0, merges: 0, first_at: r.committed_at, last_at: r.committed_at, lines_added: 0, lines_deleted: 0, lines_known: false };
       byPerson.set(r.contributor, p);
     }
     p.commits += 1;
     if (r.is_merge) p.merges += 1;
+    if (r.lines_added != null && r.lines_deleted != null){
+      p.lines_added += r.lines_added;
+      p.lines_deleted += r.lines_deleted;
+      p.lines_known = true;
+    }
     p.last_at = r.committed_at;
   }
   const contributors = [...byPerson.values()]
@@ -40,6 +45,9 @@ function buildSummary(db, config, date) {
       display_name: p.display_name,
       commits: p.commits,
       merges: p.merges,
+      lines_added: p.lines_known ? p.lines_added : null,
+      lines_deleted: p.lines_known ? p.lines_deleted : null,
+      lines_changed: p.lines_known ? p.lines_added + p.lines_deleted : null,
       share: total ? p.commits / total : 0,
       first_time: localTime(p.first_at, tz),
       last_time: localTime(p.last_at, tz),
@@ -172,13 +180,21 @@ function detectDeadlineFlag(db, config, date) {
   const p = predictDeadline(db, config, date);
   if (p.status !== 'at-risk' && p.status !== 'behind') return [];
   const pct = Math.round(p.pace_ratio * 100);
-  let detail = `Recent commit pace is ${pct}% of the project's own average, with ${p.days_remaining} day(s) left until the deadline.`;
+  let detail = `Recent commit pace is ${pct}% of the project's earlier pace, with ${p.days_remaining} day(s) left until the deadline.`;
   if (p.churn_ratio != null && p.churn_ratio > 0.6) {
     detail += ` Recent changes lean heavily toward removals/rework (${Math.round(p.churn_ratio * 100)}% of ${p.churn_basis === 'lines' ? 'lines' : 'files'} changed).`;
   }
   return [{ type: p.status === 'behind' ? 'deadline_behind' : 'deadline_at_risk', detail }];
 }
 
+/** Replaces the stored flags for a day with freshly detected ones. Returns how many. */
+function saveFlags(db, config, date, data) {
+  db.prepare('DELETE FROM flags WHERE date = ?').run(date);
+  const insertFlag = db.prepare('INSERT INTO flags (date, type, detail) VALUES (?, ?, ?)');
+  const flags = [...detectFlags(db, config, date, data), ...detectDeadlineFlag(db, config, date)];
+  for (const f of flags) insertFlag.run(date, f.type, f.detail);
+  return flags.length;
+}
 // --- saving ----------------------------------------------------------------
 
 function generateSummary(db, config, date, trigger, { force = false } = {}) {
@@ -186,8 +202,10 @@ function generateSummary(db, config, date, trigger, { force = false } = {}) {
   const logRun = db.prepare('INSERT INTO summary_runs (date, trigger, outcome, total_commits) VALUES (?, ?, ?, ?)');
 
   if (total === 0) {
+    // No summary to save, but a silent day can still be worth flagging.
+    const flagCount = saveFlags(db, config, date, buildSummary(db, config, date));
     logRun.run(date, trigger, 'skipped', 0);
-    return { saved: false, reason: 'No commits on this day.' };
+    return { saved: false, flagged: flagCount > 0, reason: 'No commits on this day.' };
   }
   if (!force && total < config.summary.minCommits) {
     logRun.run(date, trigger, 'skipped', total);
@@ -202,11 +220,8 @@ function generateSummary(db, config, date, trigger, { force = false } = {}) {
        trigger = excluded.trigger, generated_at = excluded.generated_at`
   ).run(date, total, JSON.stringify(data), trigger, generatedAt);
 
-  db.prepare('DELETE FROM flags WHERE date = ?').run(date);
-  const insertFlag = db.prepare('INSERT INTO flags (date, type, detail) VALUES (?, ?, ?)');
-  for (const f of detectFlags(db, config, date, data)) insertFlag.run(date, f.type, f.detail);
-  for (const f of detectDeadlineFlag(db, config, date)) insertFlag.run(date, f.type, f.detail);
-
+  saveFlags(db, config, date, data);
+  
   logRun.run(date, trigger, 'saved', total);
   return { saved: true, summary: { ...data, source: 'saved', trigger, generated_at: generatedAt } };
 }

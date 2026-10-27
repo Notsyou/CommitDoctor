@@ -33,21 +33,27 @@ function predictDeadline(db, config, date = localDate(Date.now(), config.timezon
 
   const days_remaining = daysBetween(date, deadline_date);
 
-  const n = config.prediction.windowDays;
-  let windowStart = addDays(date, -n);
-  if (first > windowStart) windowStart = first;
-  const windowDays = Math.max(1, daysBetween(windowStart, date));
+    // Pace: the last few days compared with everything that came before them.
+  const paceDays = config.summary.comparisonDays;
+  const recentStart = addDays(date, -(paceDays - 1));
+  const earlierDays = daysBetween(first, recentStart);
+  const enoughHistory = earlierDays >= paceDays;
 
   const recentCount = db
     .prepare('SELECT COUNT(*) AS c FROM commits WHERE committed_date >= ? AND committed_date <= ?')
-    .get(windowStart, date).c;
-  const recentRate = recentCount / windowDays;
+    .get(recentStart, date).c;
+  const recentRate = recentCount / paceDays;
 
-  const totalDays = Math.max(1, daysBetween(first, date));
-  const totalCount = db.prepare('SELECT COUNT(*) AS c FROM commits').get().c;
-  const overallRate = totalCount / totalDays;
+  const earlierCount = db.prepare('SELECT COUNT(*) AS c FROM commits WHERE committed_date < ?').get(recentStart).c;
+  const earlierRate = earlierDays > 0 ? earlierCount / earlierDays : 0;
 
-  const paceRatio = overallRate > 0 ? recentRate / overallRate : (recentRate > 0 ? 1 : 0);
+  const paceRatio = earlierRate > 0 ? recentRate / earlierRate : (recentRate > 0 ? 1 : 0);
+
+  // Churn keeps its own 21-day window.
+  const n = config.prediction.windowDays;
+  let windowStart = addDays(date, -n);
+  if (first > windowStart) windowStart = first;
+  const churnWindowDays = Math.max(1, daysBetween(windowStart, date));
 
   const churnRows = db
     .prepare(
@@ -85,6 +91,7 @@ function predictDeadline(db, config, date = localDate(Date.now(), config.timezon
 
   let status;
   if (days_remaining < 0) status = 'deadline-passed';
+  else if (!enoughHistory) status = 'insufficient-data';
   else if (paceRatio >= 0.75) status = 'on-pace';
   else if (paceRatio >= 0.4) status = 'at-risk';
   else status = 'behind';
@@ -95,10 +102,11 @@ function predictDeadline(db, config, date = localDate(Date.now(), config.timezon
     date,
     deadline_date,
     days_remaining,
-    window_days: windowDays,
+    window_days: paceDays,
+    churn_window_days: churnWindowDays,
     recent_commit_rate: round(recentRate),
-    overall_commit_rate: round(overallRate),
-    pace_ratio: round(paceRatio),
+    earlier_commit_rate: round(earlierRate),
+    pace_ratio: enoughHistory ? round(paceRatio) : null,
     churn_ratio: churnRatio == null ? null : round(churnRatio),
     churn_basis: churnBasis,
     status,

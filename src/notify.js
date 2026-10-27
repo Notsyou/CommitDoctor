@@ -63,7 +63,7 @@ function renderDeadlineEmail(p){
         subject: `Commit Doctor - ${label}: ${p.days_remaining} day(s) left (${p.status})`,
         html: `
         <p><strong>${label}:</strong> the deadline (${p.deadline_date}) is ${p.days_remaining} day(s)
-        away. </p> <p> Recent commit pace is ${pct}% of the project's own average. Status: <strong>
+        away. </p> <p> Recent commit pace is ${pct}% of the project's earlier pace. Status: <strong>
         ${p.status}</strong>.</p> ${churnLine}
         `,
     };
