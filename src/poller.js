@@ -152,18 +152,33 @@ async function pollOneRepo({ db, config, row, log = console }) {
     // One detail call per new commit for churn stats. Already-stored SHAs are
     // filtered out above, so the lookback window costs list calls only.
     const mapped = [];
+    let rateLimited = false;
     for (const c of fresh) {
       let detail;
       try {
         // eslint-disable-next-line no-await-in-loop
         detail = await fetchCommitDetail(row.repo, c.sha, token);
       } catch (detailErr) {
+        if (detailErr.status === 401 || detailErr.status === 403) {
+          // Out of API quota: storing the rest without churn stats would lose them
+          // permanently. Stop here and keep the cursor so the next cycle retries.
+          rateLimited = true;
+          log.info(`[poller] ${row.repo}: ${detailErr.message}`);
+          break;
+        }
         log.info(`[poller] ${row.repo}: could not fetch churn detail for ${c.sha.slice(0, 7)}: ${detailErr.message}`);
       }
       mapped.push(parseApiCommit(c, row.repo, branch, detail));
     }
     const added = store.addMany(mapped);
-    touch.run(nowIso, null, branch, row.id);
+
+    touch.run(
+      rateLimited ? row.last_since : nowIso,
+      rateLimited ? 'Rate limited by GitHub; will resume next cycle.' : null,
+      branch,
+      row.id
+    );
+    
     if (added) log.info(`[poller] ${row.repo}: stored ${added} new commit(s)`);
     return { ok: true, added };
   } catch (err) {

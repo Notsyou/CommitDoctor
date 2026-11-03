@@ -3,7 +3,8 @@
 const{localDate} = require('./time');
 const{predictDeadline} = require('./predict');
 
-const sentDeadlineTiers = new Set();
+const RETRY_AFTER_FAILURE_MS = 15 * 60_000;
+const failedAttempts = new WeakMap(); // db -> Map(key -> timestamp of last failed attempt)
 const dedupeKey = (date, tier) => `${date}: ${tier}`;
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({
@@ -76,12 +77,20 @@ async function checkDeadlineUrgency(db, config, mailer, log = console){
     if (!prediction.urgency || prediction.urgency === 'none') return {sent: false, reason: 'no-escalation-needed'};
 
     const key = dedupeKey(today, prediction.urgency);
-    if (sentDeadlineTiers.has(key)) return { sent: false, reason: 'already-sent-today' };
+    if (db.prepare('SELECT 1 FROM notifications_sent WHERE key = ?').get(key)) return { sent: false, reason: 'already-sent-today' };
+
+    if (!failedAttempts.has(db)) failedAttempts.set(db, new Map());
+    const failures = failedAttempts.get(db);
+    const lastFail = failures.get(key);
+    if (lastFail && Date.now() - lastFail < RETRY_AFTER_FAILURE_MS) return { sent: false, reason: 'retry-backoff' };
 
     const result = await sendToAllSubscribers(db, mailer, renderDeadlineEmail(prediction), log);
     if (result.sent){
-        sentDeadlineTiers.add(key);
+        db.prepare('INSERT OR IGNORE INTO notifications_sent (key) VALUES (?)').run(key);
+        failures.delete(key);
         log.info(`[notify] sent deadline "${prediction.urgency}" notice to ${result.count} subscriber(s)`);
+    } else if (result.attempted){
+        failures.set(key, Date.now());
     }
     return{...result, urgency: prediction.urgency};
 }

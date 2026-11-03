@@ -159,7 +159,13 @@ function detectFlags(db, config, date, summaryData) {
        HAVING last_date <= ?`
     )
     .all(date, cutoff);
+    // Only flag once per stretch of inactivity (same contributor + same last commit
+  // date), not on every following day.
+  const alreadyFlagged = db.prepare(
+    `SELECT 1 FROM flags WHERE type = 'contributor_inactive' AND date < ? AND instr(detail, ?) = 1 LIMIT 1`
+  );
   for (const row of quiet) {
+    if (alreadyFlagged.get(date, `${row.contributor} has had no commits since ${row.last_date} `)) continue;
     const idleDays = daysBetween(row.last_date, date);
     flags.push({
       type: 'contributor_inactive',
@@ -240,20 +246,28 @@ function getSummary(db, config, date, now = Date.now()) {
   return { ...buildSummary(db, config, date), source: 'live', trigger: null, generated_at: null };
 }
 
-/** Days that have commits but were never summarized (e.g. the server was off at midnight). */
+/**
+ * Past days whose saved summary is missing or out of date: never summarized (e.g. the
+ * server was off at midnight), or commits arrived after the summary was saved (e.g. a
+ * commit made Friday but pushed Monday). Days skipped for being under the minimum are
+ * left alone until their commit count changes.
+ */
 function catchUp(db, config, now = Date.now()) {
   const today = localDate(now, config.timezone);
-  const missing = db
+  const stale = db
     .prepare(
-      `SELECT DISTINCT committed_date AS d FROM commits
-       WHERE committed_date < ?
-         AND committed_date NOT IN (SELECT date FROM summaries)
-         AND committed_date NOT IN (SELECT date FROM summary_runs WHERE outcome = 'skipped')
-       ORDER BY d`
+      `SELECT c.d AS d FROM (
+         SELECT committed_date AS d, COUNT(*) AS n FROM commits WHERE committed_date < ? GROUP BY committed_date
+       ) c
+       LEFT JOIN summaries s ON s.date = c.d
+       WHERE (s.date IS NULL AND NOT EXISTS (
+                SELECT 1 FROM summary_runs r WHERE r.date = c.d AND r.outcome = 'skipped' AND r.total_commits = c.n))
+          OR (s.date IS NOT NULL AND s.total_commits <> c.n)
+       ORDER BY c.d`
     )
     .all(today)
     .map((r) => r.d);
-  return missing.map((d) => ({ date: d, ...generateSummary(db, config, d, 'catchup') }));
+  return stale.map((d) => ({ date: d, ...generateSummary(db, config, d, 'catchup') }));
 }
 
 /** Commits per day for the last `days` days ending today, zero-filled. */
