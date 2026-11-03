@@ -26,8 +26,15 @@ function createApiRouter({ db, config, mailer = null }) {
   const router = express.Router();
   const tz = config.timezone;
 
+  const isLoopback = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+  const maskEmail = (e) => String(e).replace(/^(.).*(@.*)$/, '$1***$2');
+
   const requireAdmin = (req, res, next) => {
-    if (!config.adminToken) return next();
+    if (!config.adminToken) {
+      // No token configured: only the machine running the server may change things.
+      if (isLoopback(req)) return next();
+      return res.status(401).json({ error: 'No ADMIN_TOKEN is set on this server, so changes are only allowed from the server itself. Set ADMIN_TOKEN in .env and restart.' });
+    }
     const header = req.get('authorization') || '';
     if (safeEqual(header, `Bearer ${config.adminToken}`)) return next();
     return res.status(401).json({ error: 'Admin token required.' });
@@ -330,7 +337,8 @@ function createApiRouter({ db, config, mailer = null }) {
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   router.get('/subscribers', (_req, res) => {
-    res.json(db.prepare('SELECT id, name, email, created_at FROM subscribers ORDER BY id').all());
+    res.json(db.prepare('SELECT id, name, email, created_at FROM subscribers ORDER BY id').all()
+      .map((r) => ({ ...r, email: maskEmail(r.email) })));
   });
 
   router.post('/subscribers', requireAdmin, (req, res) => {

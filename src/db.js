@@ -108,6 +108,13 @@ CREATE TABLE IF NOT EXISTS flags (
 );
 CREATE INDEX IF NOT EXISTS idx_flags_date ON flags(date);
 
+-- Remembers which deadline notices were already emailed, so a restart or an
+-- SMTP hiccup can't cause duplicates.
+CREATE TABLE IF NOT EXISTS notifications_sent (
+  key     TEXT PRIMARY KEY,
+  sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 -- Repos tracked by polling the GitHub REST API with a per-repo personal access
 -- token (encrypted at rest — see src/crypto.js), instead of a public webhook.
 -- Works for private repos and repos behind NAT/firewalls.
