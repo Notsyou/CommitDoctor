@@ -12,7 +12,7 @@ deadline per repository and flags notable deviations from the recent-activity ba
 ```bash
 # needs Node.js 22.13 or newer (check with: node -v)
 npm install
-cp .env.example .env # optional: GITHUB_WEBHOOK_SECRET is auto-generated if left empty
+cp .env.example .env # optional: needed for email (see "Setting up email"); the webhook secret is auto-generated
 npm run seed # optional: two weeks of demo data
 npm start # http://localhost:3000
 npm test
@@ -55,6 +55,45 @@ and point `DB_PATH` at it.
 Vercel and Netlify are not supported: they run short-lived serverless functions, while
 Commit Doctor needs a long-running process (scheduler, poller) and a writable disk.
 
+## Who uses it: access and email
+
+Commit Doctor has **no user accounts or logins**. One running copy serves one team:
+
+- **Viewers.** Anyone who can open the page sees the dashboard. Everyone sees the same repository: which one is shown is a server-wide setting, not a per-person choice, so switching it switches it for everyone.
+- **Admin.** Every change (repositories, deadline, settings, subscribers, test email) needs `ADMIN_TOKEN`, entered once in Settings. Whoever has the token is the admin. With no token set, changes are allowed only from the server machine itself.
+- **Email recipients.** Each repository has a subscriber list (name + email) that the admin manages in Settings. Subscribers don't log in or install anything; they only receive the emails.
+- **One sender.** All email goes out from the single SMTP account in `.env`. Run **one** copy per team: every copy has its own database and subscriber list, so two copies subscribing the same people send every email twice.
+
+`.env` is git-ignored because it holds secrets (SMTP password, admin token). Anyone who clones the repo gets only `.env.example` and must fill in their own.
+
+### Setting up email (Gmail)
+
+Email works on a local computer as well as on a server: it only needs outgoing internet access. It is off until `SMTP_HOST` is set.
+
+1. On the Google account that will send the emails, turn on **2-Step Verification** (myaccount.google.com/security).
+2. Create an **App Password** at myaccount.google.com/apppasswords (name it e.g. "Commit Doctor") and copy the 16-letter code. Your normal Gmail password does not work: Gmail rejects it with `535 Username and Password not accepted`. The same error appears if the App Password was made on a different account than `SMTP_USER`.
+3. In `.env` set:
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=you@gmail.com
+   SMTP_PASS=<the 16-letter App Password>
+   SMTP_FROM=Commit Doctor <you@gmail.com>
+   ```
+4. Restart. The startup banner should say `Email : on (smtp.gmail.com)`.
+5. Add subscribers in Settings. `POST /api/notifications/test` (admin) with `{"to": "..."}` sends a test email.
+
+An App Password can be deleted at any time without touching the account's real password; do that if it ever leaks.
+
+### When emails are sent
+
+Emails only go out **while the server is running**. On a laptop that is off, nothing is sent until it starts again.
+
+- **Deadline emails** (checked every 30 seconds). Need a deadline set for the repository. If the team is on pace (or there isn't enough history yet), a reminder goes out only when the deadline is exactly 7, 3 or 1 day(s) away. If it is at-risk or behind, one goes out every day of the final week (reminder at 4-7 days, urgent at 2-3, final at 0-1). At most one email per repository, per day, per level; a failed send is retried after 15 minutes. `POST /api/notifications/check` (admin) runs the check immediately.
+- **Flag emails** (at midnight in `TIMEZONE`). When a day ends and its summary has flags (activity clearly above/below baseline, a contributor gone quiet), the flags are emailed. Generating a summary by hand does not send email.
+
+Every send is logged in the terminal (`[notify] sent ...` or `[notify] failed to email ...`).
+
 ## How it works
 
 
@@ -86,6 +125,10 @@ Commit Doctor needs a long-running process (scheduler, poller) and a writable di
 | `SYNC_INTERVAL_MS` | `300000` | Re-pull the tracked repo through GitHub's API this often (5 min), so it stays current without a working webhook. `0` turns it off. |
 | `DB_PATH` | `./data/commitdoctor.db` | SQLite file. |
 | `ADMIN_TOKEN` | none | Required as `Authorization: Bearer <token>` for every write endpoint. If empty, writes are accepted only from the server machine itself (loopback, local `Host`/`Origin`, no proxy headers), so a tunnel or host such as ngrok or Render can't bypass it. **Set it on any public deploy.** |
+| `SMTP_HOST` | none | SMTP server, e.g. `smtp.gmail.com`. Empty turns email off. See [Setting up email](#setting-up-email-gmail). |
+| `SMTP_PORT` | `587` | `587` (STARTTLS) or `465` (TLS). |
+| `SMTP_USER` / `SMTP_PASS` | none | Login for the sending account. For Gmail, `SMTP_PASS` is an App Password, not the account password. |
+| `SMTP_FROM` | `SMTP_USER` | Sender shown to recipients, e.g. `Commit Doctor <you@gmail.com>`. |
 | `PORT` | `3000` | |
 
 ## API
